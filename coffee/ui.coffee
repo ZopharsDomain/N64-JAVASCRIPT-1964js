@@ -20,13 +20,13 @@ g_settings = undefined
 reader = undefined
 @progress = document.querySelector(".percent")
 alertMessage = ""
-unless window.File
-  alertMessage += " window.File"
-else unless window.FileReader
-  alertMessage += " window.FileReader"
-else unless window.FileList
-  alertMessage += " window.FileList"
-else alertMessge += " window.Blob"  unless window.Blob
+unless self.File
+  alertMessage += " self.File"
+else unless self.FileReader
+  alertMessage += " self.FileReader"
+else unless self.FileList
+  alertMessage += " self.FileList"
+else alertMessge += " self.Blob"  unless self.Blob
 log "Unsupported in this browser: " + alertMessage  if alertMessage.length > 0
 @i1964js = undefined
 
@@ -41,7 +41,7 @@ showValue = (newValue) ->
 getUrlVars = ->
   vars = []
   hash = undefined
-  hashes = window.location.href.slice(window.location.href.indexOf("?") + 1).split("&")
+  hashes = self.location.href.slice(self.location.href.indexOf("?") + 1).split("&")
   i = 0
   while i < hashes.length
     hash = hashes[i].split("=")
@@ -56,8 +56,8 @@ initTryCatch = (buffer) ->
     if @i1964js isnt `undefined` and @i1964js?
       @i1964js.stopEmulatorAndCleanup()
 
-    @i1964js = new C1964jsEmulator(g_settings)
-    @i1964js.init buffer
+    @i1964js = new C1964jsEmulator g_settings, buffer
+    @i1964js.startEmulator()
   catch e
     if @i1964js isnt `undefined` and @i1964js?
       @i1964js.terminate = true
@@ -93,7 +93,7 @@ uncompressAndRun = (romPath, response) ->
 
 @start1964 = (settings) ->
   g_settings = settings
-  document.getElementById("user_panel").className = "show"
+
   vars = getUrlVars()
   romPath = undefined
   i = 0
@@ -106,7 +106,11 @@ uncompressAndRun = (romPath, response) ->
     xhr.responseType = "arraybuffer"
     xhr.send()
     xhr.onload = (e) =>
+      # hide the user panel
+      hideUserPanel()
       uncompressAndRun romPath, e.target.response
+  else
+    showUserPanel()
   return
 
 #Check for the various File API support.
@@ -175,31 +179,50 @@ handleFileSelect = (evt) ->
     unless @progress is `undefined`
       @progress.style.width = "100%"
       @progress.textContent = "100%"
-    setTimeout "document.getElementById('progress_bar').className='';document.getElementById('user_panel').className='';", 1000  unless @progressBar is `undefined`
-    #todo: add zip support (from index.html)
+    #setTimeout "document.getElementById('progress_bar').className='';document.getElementById('user_panel').className='';", 1000  unless @progressBar is `undefined`
+    setTimeout "document.getElementById('files').disabled = true;document.getElementById('user_panel').className='';", 1000
     uncompressAndRun fileName, reader.result
     return
-  
+
   # Read in the file as an array buffer.
   reader.readAsArrayBuffer evt.target.files[0]
   return
 
-document.getElementById("user_panel").onmousemove = ->
-  document.getElementById("user_panel").className = "show"
-
 document.getElementById("user_panel").ontouchend = (event) ->
-  document.getElementById("user_panel").className = "show"
-  event.cancelBubble = true
-  event.stopPropagation() if event.stopPropagation
+  showUserPanel()
 
-document.getElementById("user_panel").onmouseup = (event) ->
-  event.cancelBubble = true
-  event.stopPropagation() if event.stopPropagation
+showUserPanel = () ->
+  document.getElementById("user_panel").className = "show"
+  self.startGradientBackground()
+
+hideUserPanel = () ->
+  document.getElementById("user_panel").className = ""
+  #disable the animating background
+  self.stopGradientBackground()
 
 document.onmouseup = (event) ->
-  document.getElementById("user_panel").className = if document.getElementById("user_panel").className is "" then "show" else ""
+
+  if event.target.className is "dropbtn" or event.target.className is "file"
+    # disallow hiding if presssing the dropdown
+    event.cancelBubble = true
+    event.stopPropagation() if event.stopPropagation
+    return
+
+  if document.getElementById("user_panel").className is "" 
+    showUserPanel()
+  else if document.getElementById("user_panel").className is "show"
+    hideUserPanel()
 
 document.ontouchend = (event) ->
-  document.getElementById("user_panel").className = if document.getElementById("user_panel").className is "" then "show" else ""
+  if event.target.className is "dropbtn" or event.target.className is "file"
+    # disallow hiding if presssing the dropdown
+    event.cancelBubble = true
+    event.stopPropagation() if event.stopPropagation
+    return
+
+  if document.getElementById("user_panel").className is "" 
+    showUserPanel()
+  else if document.getElementById("user_panel").className is "show"
+    hideUserPanel()
 
 document.getElementById("files").addEventListener "change", handleFileSelect, false

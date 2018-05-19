@@ -46,8 +46,10 @@ class C1964jsDMA
       if from + end + 1 > @memory.rom.byteLength
         transfer = @memory.rom.byteLength - from - 1
         remaining = end - transfer
+      `const d = this.memory.u8`
+      `const r = this.memory.romUint8Array`
       while transfer >= 0
-        @memory.rdramUint8Array[to] = @memory.romUint8Array[from]
+        d[to] = r[from]
         to++
         from++
         --transfer
@@ -57,7 +59,7 @@ class C1964jsDMA
     else
       alert "pi reading from somewhere other than cartridge domain"
       while end-- >= 0
-        @memory.rdramUint8Array[to] = @memory.lb(from)
+        d[to] = @memory.lb(from)
         from++
         to++
 
@@ -77,7 +79,7 @@ class C1964jsDMA
     from &= 0x0000ffff
     @pif.processPif()
     while end >= 0
-      @memory.rdramUint8Array[to] = @memory.pifUint8Array[from]
+      @memory.u8[to] = @memory.pifUint8Array[from]
       to++
       from++
       --end
@@ -112,7 +114,7 @@ class C1964jsDMA
     to &= 0x0000ffff
     from &= 0x0fffffff
     while end >= 0
-      @memory.pifUint8Array[to] = @memory.rdramUint8Array[from]
+      @memory.pifUint8Array[to] = @memory.u8[from]
       to++
       from++
       --end
@@ -134,7 +136,7 @@ class C1964jsDMA
     to &= 0x00001fff
     from &= 0x00ffffff
     while end >= 0
-      @memory.spMemUint8Array[to] = @memory.rdramUint8Array[from]
+      @memory.spMemUint8Array[to] = @memory.u8[from]
       to++
       from++
       --end
@@ -149,7 +151,7 @@ class C1964jsDMA
 
 #hack global space until we export classes properly
 #node.js uses exports; browser uses this (window)
-root = exports ? this
+root = exports ? self
 root.C1964jsDMA = C1964jsDMA
 root.log = (message) ->
   "use strict"

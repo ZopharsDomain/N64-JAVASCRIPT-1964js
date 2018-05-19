@@ -27,8 +27,8 @@ class C1964jsAudio
     i = from
     k = 0
     while k < length
-      left[k] = ((memory.rdramUint8Array[i] << 8 | memory.rdramUint8Array[i + 1]) << 16 >> 16) * PI_2_400
-      right[k] = ((memory.rdramUint8Array[i + 2] << 8 | memory.rdramUint8Array[i + 3]) << 16 >> 16) * PI_2_400
+      left[k] = ((memory.u8[i] << 8 | memory.u8[i + 1]) << 16 >> 16) * PI_2_400
+      right[k] = ((memory.u8[i + 2] << 8 | memory.u8[i + 3]) << 16 >> 16) * PI_2_400
       i += 4
       k++
     source.buffer = audioBuffer
@@ -40,5 +40,5 @@ class C1964jsAudio
 
 #hack global space until we export classes properly
 #node.js uses exports; browser uses this (window)
-root = exports ? this
+root = exports ? self
 root.C1964jsAudio = C1964jsAudio

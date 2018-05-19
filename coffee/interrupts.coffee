@@ -65,6 +65,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.#
 currentHack = 0
 C1964jsInterrupts = (core, cp0) ->
   "use strict"
+
+  @delayNextInterrupt = false
+
   @setException = (exception, causeFlag, pc, isFromDelaySlot) ->
     #log('set exception');
     cp0[consts.CAUSE] |= exception
@@ -72,6 +75,13 @@ C1964jsInterrupts = (core, cp0) ->
     return
 
   @processException = (pc, isFromDelaySlot) ->
+
+    # we don't want to process interrupts immediately
+    if @delayNextInterrupt is true
+      core.m[0] = -156250
+      @delayNextInterrupt = false
+      return
+
     return false  if (cp0[consts.STATUS] & consts.IE) is 0
     if (cp0[consts.STATUS] & consts.EXL) isnt 0
       #log "nested exception"
@@ -82,20 +92,22 @@ C1964jsInterrupts = (core, cp0) ->
       #log "Exception happens in CPU delay slot, pc=" + pc
       cp0[consts.CAUSE] |= consts.BD
       cp0[consts.EPC] = pc - 4
-    
+
     # throw 'interrupt';
     else
       cp0[consts.CAUSE] &= ~consts.BD
       cp0[consts.EPC] = pc
-    
+
     #throw 'interrupt';
     core.flushDynaCache()  if core.doOnce is 0
     core.doOnce = 1
-    core.p = 0x80000180
+    core.p[0] = 0x80000180
     true
 
   @triggerCompareInterrupt = (pc, isFromDelaySlot) ->
     @setException consts.EXC_INT, consts.CAUSE_IP8, pc, isFromDelaySlot
+    #if core.interval is 3 #don't process immediately
+    #core.m[0] = -156250
     return
 
   @triggerPIInterrupt = (pc, isFromDelaySlot) ->
@@ -142,8 +154,8 @@ C1964jsInterrupts = (core, cp0) ->
 
   @clearMIInterrupt = (flag) ->
     @clrFlag core.memory.miUint8Array, consts.MI_INTR_REG, flag
-    value = core.memory.miUint8Array[consts.MI_INTR_MASK_REG] << 24 | core.memory.miUint8Array[consts.MI_INTR_MASK_REG + 1] << 16 | core.memory.miUint8Array[consts.MI_INTR_MASK_REG + 2] << 8 | core.memory.miUint8Array[consts.MI_INTR_MASK_REG + 3]
-    cp0[consts.CAUSE] &= ~consts.CAUSE_IP3  if (value & (core.memory.getUint32(core.memory.miUint8Array, consts.MI_INTR_REG))) isnt 0
+    miIntrMaskReg = core.memory.miUint8Array[consts.MI_INTR_MASK_REG] << 24 | core.memory.miUint8Array[consts.MI_INTR_MASK_REG + 1] << 16 | core.memory.miUint8Array[consts.MI_INTR_MASK_REG + 2] << 8 | core.memory.miUint8Array[consts.MI_INTR_MASK_REG + 3]
+    cp0[consts.CAUSE] &= ~consts.CAUSE_IP3  if (miIntrMaskReg & (core.memory.getUint32(core.memory.miUint8Array, consts.MI_INTR_REG))) is 0
     return
 
   #if((cp0[CAUSE] & cp0[STATUS] & SR_IMASK) == 0)
@@ -151,14 +163,14 @@ C1964jsInterrupts = (core, cp0) ->
   @readVI = (offset) ->
     switch offset
       when consts.VI_CURRENT_REG
-        
+
         #hack for berney demo
         currentHack = 0  if (currentHack += 1) is 625
-        
+
         #  triggerVIInterrupt(pc, isFromDelaySlot);
         #warning: need to refactor. triggerVIInterrupt
         #can service an interrupt immediately without setting rt[i]
-        
+
         #return currentHack;
         #return ((core.memory.getInt32(core.memory.viUint8Array, offset) & 0xfffffffe) + currentHack) | 0
         return (((core.memory.viUint8Array[offset] << 24 | core.memory.viUint8Array[offset + 1] << 16 | core.memory.viUint8Array[offset + 2] << 8 | core.memory.viUint8Array[offset + 3]) & 0xfffffffe) + currentHack) | 0
@@ -245,7 +257,7 @@ C1964jsInterrupts = (core, cp0) ->
         #todo: implement AI_LEN_REG -- how many bytes unconsumed..
         core.kfi -= 1
         if core.kfi is 0
-          core.kfi = 512
+          core.kfi = 512 #todo: this comes from viewport?
           @clrFlag core.memory.aiUint8Array, consts.AI_STATUS_REG, consts.AI_STATUS_FIFO_FULL
           #@triggerAIInterrupt 0, false
           #checkInterrupts();
@@ -391,7 +403,7 @@ C1964jsInterrupts = (core, cp0) ->
 
   @writeSIStatusReg = (value, pc, isFromDelaySlot) ->
     #Clear SI interrupt unconditionally
-    #clearMIInterrupt(consts.MI_INTR_SI); //wrong!
+    @clearMIInterrupt(consts.MI_INTR_SI); #wrong!
     @clrFlag core.memory.siUint8Array, consts.SI_STATUS_REG, consts.SI_STATUS_INTERRUPT
     return
 
@@ -400,8 +412,9 @@ C1964jsInterrupts = (core, cp0) ->
     tempSr &= ~consts.SP_STATUS_BROKE if value & SP_CLR_BROKE
     if value & SP_SET_INTR
       @triggerSPInterrupt pc, isFromDelaySlot
-    #to use else if here is a possible bux fix (what is this?..this looks weird)
-    else @clearMIInterrupt consts.MI_INTR_SP if value & SP_CLR_INTR
+    #to use else if here is a possible bux fix (what is this?..this looks weird).
+    # No. this else causes freezing.
+   # else @clearMIInterrupt consts.MI_INTR_SP if value & SP_CLR_INTR
     if value & SP_SET_SSTEP
       tempSr |= SP_STATUS_SSTEP
     else tempSr &= ~SP_STATUS_SSTEP if value & SP_CLR_SSTEP
@@ -489,7 +502,7 @@ C1964jsInterrupts = (core, cp0) ->
       if core.memory.getUint32(core.memory.piUint8Array, consts.PI_STATUS_REG) & (consts.PI_STATUS_IO_BUSY | consts.PI_STATUS_DMA_BUSY) #Is PI busy?
         #Reset the PIC
         core.memory.setInt32 core.memory.piUint8Array, consts.PI_STATUS_REG, 0
-        
+
         #Reset finished, set PI Interrupt
         @triggerPIInterrupt pc, isFromDelaySlot
       else
@@ -506,23 +519,38 @@ C1964jsInterrupts = (core, cp0) ->
         break
       when consts.GFX_TASK
         core.videoHLE = new C1964jsVideoHLE(core, core.webGL.gl)  if core.videoHLE is null or core.videoHLE is `undefined`
-        core.settings.wireframe = document.getElementById("wireframe").checked
+        wireframe = document.getElementById("wireframe")
+        core.settings.wireframe = false
+        core.settings.wireframe = true if wireframe isnt null and wireframe.checked
+        repeatDList = document.getElementById("repeatDList")
+        core.settings.repeatDList = false
+        core.settings.repeatDList = true if repeatDList isnt null and repeatDList.checked
         if core.terminate is false
           core.videoHLE.processDisplayList()
+          if core.settings.repeatDList is true
+            core.stopEmulatorAndCleanup()
+            @interval = setInterval(=>
+              core.videoHLE.processDisplayList()
+              @triggerRspBreak 0, false
+              return
+            , 1000)
+          else
+            @triggerRspBreak 0, false
       when consts.SND_TASK
         @processAudioList()
+        @triggerRspBreak 0, false
       when consts.JPG_TASK
         @processJpegTask()
+        @triggerRspBreak 0, false
       else
         #log "unhandled sp task: " + spDmemTask
         break
     @checkInterrupts()
-    @triggerRspBreak()
     return
 
   @processAudioList = ->
     #log "todo: process Audio List"
-    
+
     #just clear flags now to get the gfx tasks :)
     #see UpdateFifoFlag in 1964cpp's AudioLLE main.cpp.
     @clrFlag core.memory.aiUint8Array, consts.AI_STATUS_REG, consts.AI_STATUS_FIFO_FULL
@@ -542,17 +570,17 @@ C1964jsInterrupts = (core, cp0) ->
     @triggerDPInterrupt 0, false  if (core.memory.getUint32(core.memory.miUint8Array, consts.MI_INTR_REG) & consts.MI_INTR_DP) isnt 0
     @triggerAIInterrupt 0, false  if (core.memory.getUint32(core.memory.miUint8Array, consts.MI_INTR_REG) & consts.MI_INTR_AI) isnt 0
     @triggerSIInterrupt 0, false  if (core.memory.getUint32(core.memory.miUint8Array, consts.MI_INTR_REG) & consts.MI_INTR_SI) isnt 0
-
+    @triggerRspBreak 0, false  if (core.memory.getUint32(core.memory.miUint8Array, consts.MI_INTR_REG) & consts.MI_INTR_SP) isnt 0
     #if ((core.memory.getUint32(miUint8Array, consts.MI_INTR_REG) & consts.MI_INTR_VI) !== 0)
     #    this.triggerVIInterrupt(0, false);
     @setException consts.EXC_INT, 0, core.p, false  if (cp0[consts.CAUSE] & cp0[consts.STATUS] & 0x0000FF00) isnt 0
 
-#do not process interrupts here as we don't have support for
-#interrupts in delay slots. processs them in the main runLoop.
+    #do not process interrupts here as we don't have support for
+    #interrupts in delay slots. process them in the main runLoop.
     return
   return this
 
 #hack global space until we export classes properly
 #node.js uses exports; browser uses this (window)
-root = exports ? this
+root = exports ? self
 root.C1964jsInterrupts = C1964jsInterrupts
